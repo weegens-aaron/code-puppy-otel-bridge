@@ -12,8 +12,9 @@ the same way: substitute its traces endpoint and auth in Steps 3–4.
 
 ## Prerequisites
 
-- code-puppy installed and running (any install method: uv tool, uvx,
-  pipx, plain venv).
+- code-puppy, run the standard way: `uvx code-puppy`. (Running it some
+  other way? The plugin still works, but the dependency-durability
+  advice below won't match your setup — adapt it yourself.)
 - Docker (only for the local-Langfuse example backend in Step 1 — skip
   if you already have an OTLP backend).
 
@@ -78,11 +79,15 @@ Start (or restart) code-puppy, then:
   every config key, and — once all green — **activates tracing
   immediately**. No restart needed on this path.
 
-If it prints a durability warning (uvx / uv tool / pipx environments),
-your deps will survive *this* session but may vanish on the next tool
-upgrade or cache prune. Do the durable install from the README's
-[install table](../README.md#manual--durable-dependency-install) when
-convenient — the warning message prints your exact command.
+It will print a durability warning: uvx builds code-puppy's environment
+from a cache, so the deps survive *this and future sessions* — until a
+cache prune or a code-puppy version bump rebuilds the env without them.
+The durable fix is baking them into your launch command (the warning
+prints it verbatim — alias it):
+
+```bash
+uvx --with opentelemetry-sdk --with opentelemetry-exporter-otlp-proto-http --with opentelemetry-processor-baggage code-puppy
+```
 
 ## Step 5 — Verify
 
@@ -102,8 +107,8 @@ Seeing the trace? You're done. Not seeing it? Table below.
 |---|---|---|
 | Startup banner: "tracing enabled but NOT active — endpoint is unset" | `otel_bridge_endpoint` never set | Step 3, then `/otel-setup` |
 | Startup banner: "...opentelemetry-sdk ... aren't installed" | Deps missing from code-puppy's env (fresh install, tool upgrade, cache prune) | `/otel-setup` reinstalls them on the spot |
-| Deps keep vanishing after every code-puppy upgrade | Non-durable env (uvx/uv tool/pipx) | Durable install: README [install table](../README.md#manual--durable-dependency-install) |
-| `/otel-setup` says "no pip in this env and no `uv` on PATH" | Interpreter env has no installer available | Install `uv` (or run the `pip install` line it prints in whatever env code-puppy actually uses) |
+| Deps keep vanishing after every code-puppy update | uvx rebuilt the cached env without them (expected) | Launch with the `uvx --with ...` durable form from Step 4 |
+| `/otel-setup` says "no pip in this env and no `uv` on PATH" | You're not running via `uvx code-puppy` (which guarantees `uv` exists) | Off the paved path: run the `pip install` line it prints in whatever env code-puppy actually uses |
 | `/otel-status` says ON but nothing in the backend UI | Wrong endpoint path (bare host instead of full `/v1/traces` path) | Fix `otel_bridge_endpoint` per Step 3's gotcha, **restart code-puppy** |
 | Same, plus export errors mentioning 401/403 in logs | Wrong or swapped keys | Re-run `/otel-setup auth <pk> <sk>` (public key first!), restart |
 | Same, plus connection-refused export errors in logs | Backend not running / wrong port | `docker compose ps` in your Langfuse checkout; fix and traces resume on their own |

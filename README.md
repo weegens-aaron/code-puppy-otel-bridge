@@ -39,33 +39,26 @@ you name it. No code-puppy core changes, no vendor lock-in.
    config keys, and activates tracing live (no restart needed). If the
    plugin is enabled but can't trace, a startup banner points you here.
 
-### Manual / durable dependency install
+### Durable dependency install
 
-`/otel-setup` installs into the *currently running* environment, which
-for uv/pipx-managed installs is **not durable** across tool upgrades or
-cache prunes (the command warns you when that's the case). The durable
-way is recording the three deps alongside code-puppy itself:
+code-puppy is run via `uvx code-puppy`. `/otel-setup` installs the
+three OTel packages into uvx's cached environment — which works until
+the cache is pruned or code-puppy's version changes, at which point uvx
+builds a fresh env *without* them. The durable form bakes them into
+your launch command (alias it and forget about it):
 
-   ```
-   opentelemetry-sdk
-   opentelemetry-exporter-otlp-proto-http
-   opentelemetry-processor-baggage
-   ```
+```bash
+uvx --with opentelemetry-sdk --with opentelemetry-exporter-otlp-proto-http --with opentelemetry-processor-baggage code-puppy
+```
 
-   How you do that depends on how you installed code-puppy:
+If spans stop flowing after a code-puppy update, that's what happened —
+run `/otel-status` to confirm and `/otel-setup` to reinstall on the
+spot.
 
-   | Install method | Command |
-   |---|---|
-   | `uv tool` | `uv tool install code-puppy --with opentelemetry-sdk --with opentelemetry-exporter-otlp-proto-http --with opentelemetry-processor-baggage` |
-   | `uvx` (ephemeral) | `uvx --with opentelemetry-sdk --with opentelemetry-exporter-otlp-proto-http --with opentelemetry-processor-baggage code-puppy` |
-   | `pipx` | `pipx inject code-puppy opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-processor-baggage` |
-   | plain `pip` venv | `pip install opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-processor-baggage` |
-
-   > **Sharp edge:** tool upgrades or cache prunes can drop these deps if
-   > they aren't recorded alongside code-puppy (the `--with` / `inject`
-   > variants above record them). If spans stop flowing after an
-   > upgrade, run `/otel-status` — it reports exactly what's missing —
-   > or `/otel-setup` to reinstall on the spot.
+Running code-puppy some other way (uv tool, pipx, a venv)? Install the
+same three packages into whatever environment code-puppy imports from —
+the plugin doesn't care how they got there, but you're off the paved
+path and the details are yours to own.
 
 ## Configure
 

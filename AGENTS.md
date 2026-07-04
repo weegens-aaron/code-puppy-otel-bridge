@@ -28,7 +28,8 @@ visible `emit_warning` line at startup pointing at **`/otel-setup`**
 `find_spec` probes matching the exact imports `_instrument()` performs,
 (b) installs them into the running env (`pip` if the env has it, else
 `uv pip install --python <sys.executable>`), warning when the env is
-non-durable (uvx cache / uv tool / pipx heuristics on `sys.executable`),
+uv-managed and therefore non-durable (the supported launch scenario is
+`uvx code-puppy`),
 (c) reports each config key's state with the exact `/set` command to run
 next, and (d) once everything is green, calls `_instrument()` live --
 idempotent + one-way, so the happy path needs **no restart**.
@@ -149,19 +150,19 @@ Read straight from `code_puppy/plugins/__init__.py` this session:
 
 ## Remaining work (in priority order)
 
-1. **Dependency durability (mitigated, not solved).** The three runtime
-   deps (`opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http`,
-   `opentelemetry-processor-baggage`) must live in the SAME Python env
-   as code-puppy. Tool upgrades / cache prunes can silently drop them;
-   the plugin then degrades gracefully AND (when enabled) banners at
-   startup pointing at `/otel-setup`, which reinstalls into the running
-   env on the spot. That reinstall is still NOT durable for uv/pipx
-   envs -- durable installs bake deps into the tool receipt (`uv tool
-   install code-puppy --with <each dep>`, or `pipx inject code-puppy
-   <deps>`; bare `uvx` needs `uvx --with <deps> code-puppy`) and
-   `/otel-setup` prints exactly that incantation when it detects a
-   non-durable env. No durable fix possible from inside the plugin;
-   keep the README's install section accurate.
+1. **Dependency durability (mitigated, not solved).** Supported launch
+   scenario: **`uvx code-puppy`, always** (owner decision 2026-07-04;
+   other install methods are explicitly the user's own problem -- don't
+   re-add per-method tables/heuristics). The three runtime deps
+   (`opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http`,
+   `opentelemetry-processor-baggage`) must live in code-puppy's env;
+   uvx rebuilds its cached env WITHOUT them on cache prune or version
+   change. The plugin then degrades gracefully AND (when enabled)
+   banners at startup pointing at `/otel-setup`, which reinstalls into
+   the running cached env on the spot and prints the durable
+   incantation: `uvx --with <each dep> code-puppy`. No durable fix
+   possible from inside the plugin; keep the README's install section
+   accurate.
 2. **Sibling-plugin enrichment pattern: PROVEN (2026-07-04).** Another
    plugin added its own narrowly-scoped BaggageSpanProcessor to the
    global provider to emit backend-specific session/metadata baggage
@@ -208,10 +209,10 @@ Audit findings + invariants any future change must preserve:
 
 - All path handling is `os.path`-based; the ONLY platform-heuristic code
   is `setup_command.durability_note()`, which normalizes separators and
-  matches uvx-cache / uv-tool / pipx layouts for all three OSes --
-  pinned by a 12-case parametrized test. It's advisory-only (a warning,
-  never a gate), so custom `UV_TOOL_DIR`/`PIPX_HOME` defeating it is
-  acceptable degradation.
+  detects uv-managed envs (`/uv/` in the interpreter path) across the
+  uvx cache locations of all three OSes -- pinned by a 6-case
+  parametrized test. It's advisory-only (a warning, never a gate), so
+  exotic `UV_CACHE_DIR` values defeating it is acceptable degradation.
 - Installer subprocess uses `encoding="utf-8", errors="replace"` --
   Windows' locale codec (cp1252) would otherwise raise mid-install on
   pip/uv's UTF-8 output. Don't remove.

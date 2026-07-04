@@ -126,32 +126,16 @@ def test_install_deps_reports_installer_failure(monkeypatch):
 @pytest.mark.parametrize(
     ("exe", "expect_fragment"),
     [
-        # Windows
-        (r"C:\Users\x\pipx\venvs\code-puppy\Scripts\python.exe", "pipx inject"),
+        # uvx cached envs (THE supported launch scenario) per OS:
         (
             r"C:\Users\x\AppData\Local\uv\cache\archive-v0\abc\Scripts\python.exe",
             "uvx --with",
         ),
-        (
-            r"C:\Users\x\AppData\Roaming\uv\tools\code-puppy\Scripts\python.exe",
-            "uv tool install",
-        ),
-        (r"C:\my\plain\venv\Scripts\python.exe", None),
-        # Linux
         ("/home/x/.cache/uv/archive-v0/abc/bin/python3", "uvx --with"),
-        ("/home/x/.local/share/uv/tools/code-puppy/bin/python3", "uv tool install"),
-        ("/home/x/.local/share/pipx/venvs/code-puppy/bin/python", "pipx inject"),
-        ("/usr/bin/python3", None),
-        # macOS
         ("/Users/x/Library/Caches/uv/archive-v0/abc/bin/python3", "uvx --with"),
-        (
-            "/Users/x/Library/Application Support/uv/tools/code-puppy/bin/python3",
-            "uv tool install",
-        ),
-        (
-            "/Users/x/Library/Application Support/pipx/venvs/code-puppy/bin/python",
-            "pipx inject",
-        ),
+        # Off the paved path: no note, install still works.
+        (r"C:\my\plain\venv\Scripts\python.exe", None),
+        ("/usr/bin/python3", None),
         ("/opt/homebrew/bin/python3", None),
     ],
 )

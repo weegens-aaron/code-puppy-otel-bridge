@@ -22,10 +22,12 @@ Two modes:
     auth, not vendor-specific, so it stays inside the backend-agnostic
     ground rule.
 
-Durability caveat (see AGENTS.md "Remaining work" #1): installing into a
-uv-managed or pipx env is NOT durable across tool upgrades / cache
-prunes. :func:`durability_note` detects the common cases and prints the
-durable incantation so users aren't surprised later.
+Durability caveat (see AGENTS.md "Remaining work" #1): the supported
+launch scenario is ``uvx code-puppy``, whose cached env is rebuilt
+without these deps on cache prune / version change -- installing into
+it is NOT durable. :func:`durability_note` detects uv-managed envs and
+prints the durable ``uvx --with`` incantation so users aren't surprised
+later. Other install methods work but are the user's own concern.
 """
 
 from __future__ import annotations
@@ -123,27 +125,23 @@ def install_deps(packages: list[str]) -> tuple[bool, str]:
 
 
 def durability_note() -> str | None:
-    """Warn when the install target env won't survive tool maintenance."""
+    """Warn that a uv-managed env won't survive tool maintenance.
+
+    The supported way to run code-puppy is ``uvx code-puppy``, whose
+    cached env is rebuilt WITHOUT these deps on cache prune or version
+    change. Any uv-managed interpreter gets the durable ``uvx --with``
+    incantation; other setups are off the paved path and get no note
+    (the install still works -- durability is their own concern).
+    """
     exe = sys.executable.replace("\\", "/").lower()
-    deps = " ".join(_DEP_NAMES)
+    if "/uv/" not in exe:
+        return None
     with_flags = " ".join(f"--with {d}" for d in _DEP_NAMES)
-    if "pipx" in exe:
-        return (
-            "pipx env detected -- this install may not survive "
-            "`pipx upgrade`. Durable form: pipx inject code-puppy " + deps
-        )
-    if "/uv/" in exe:
-        if "/tools/" in exe:
-            return (
-                "uv tool env detected -- upgrades rebuild it without these "
-                "deps. Durable form: uv tool install code-puppy " + with_flags
-            )
-        return (
-            "ephemeral uvx env detected -- this install vanishes on cache "
-            "prune or version change. Durable form: "
-            f"uvx {with_flags} code-puppy"
-        )
-    return None
+    return (
+        "uv-managed env detected -- this install vanishes on cache prune "
+        "or code-puppy version change. Durable form (alias it!): "
+        f"uvx {with_flags} code-puppy"
+    )
 
 
 def _handle_auth(args: list[str]) -> bool:
