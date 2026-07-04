@@ -1,0 +1,5 @@
+# Normalize line endings across Windows/Linux/macOS contributors:
+# store LF in the repo, let git decide working-tree endings.
+* text=auto
+*.py text eol=lf
+*.md text
