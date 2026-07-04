@@ -27,7 +27,13 @@ you name it. No code-puppy core changes, no vendor lock-in.
 
 ## Install
 
-1. Copy (or clone) this directory to `~/.code_puppy/plugins/otel_bridge/`.
+1. Clone into your code-puppy plugins directory (the `otel_bridge` name
+   is required — the plugin loader keys off it):
+
+   ```bash
+   git clone https://github.com/weegens-aaron/code-puppy-otel-bridge.git ~/.code_puppy/plugins/otel_bridge
+   ```
+
 2. Start code-puppy and run **`/otel-setup`** — it installs the runtime
    dependencies into the running environment, walks you through the
    config keys, and activates tracing live (no restart needed). If the

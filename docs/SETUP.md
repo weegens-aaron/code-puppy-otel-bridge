@@ -39,13 +39,12 @@ Already running a different backend? All you need from it is:
 
 ## Step 2 — Install the plugin
 
-Copy or clone this directory so it lives at exactly:
+Clone it so it lives at exactly `~/.code_puppy/plugins/otel_bridge/`
+(Windows: `%USERPROFILE%\.code_puppy\plugins\otel_bridge\`):
 
+```bash
+git clone https://github.com/weegens-aaron/code-puppy-otel-bridge.git ~/.code_puppy/plugins/otel_bridge
 ```
-~/.code_puppy/plugins/otel_bridge/
-```
-
-(On Windows: `%USERPROFILE%\.code_puppy\plugins\otel_bridge\`.)
 
 The loader keys off the directory name and `register_callbacks.py`
 being present — don't rename either.
