@@ -134,19 +134,50 @@ Read straight from `code_puppy/plugins/__init__.py` this session:
   `config.py` docstring for full semantics): `otel_bridge_enabled`,
   `otel_bridge_endpoint`, `otel_bridge_headers`, `otel_bridge_service_name`.
 
-## Verified pydantic-ai OTel API (do not re-derive from memory -- cite this doc or the official docs)
+## Verified pydantic-ai OTel API (do not re-derive from memory -- verified against the INSTALLED lib)
+
+Verified against pydantic-ai **1.56.0 as installed in code-puppy's env**
+(2026-07-04) -- which differs from the 2026-07-03 docs snapshot this
+section previously trusted (docs described a newer release):
 
 - `pydantic_ai.Agent.instrument_all(settings=None)` -- classmethod,
   instruments every `Agent` instance, existing and future, in the
   process. No need to touch code that constructs agents.
-- `pydantic_ai.InstrumentationSettings(*, tracer_provider=None,
-  meter_provider=None, include_binary_content=True, include_content=True,
-  version=5, use_aggregated_usage_attribute_names=True)`.
-- `version` default is **5** (docs snapshot 2026-07-03). The old
-  `event_mode` parameter from older tutorials **does not exist** anymore;
-  any source using it is stale.
+- `InstrumentationSettings(*, tracer_provider=None, meter_provider=None,
+  include_binary_content=True, include_content=True,
+  version: Literal[1, 2, 3] = 2, event_mode='attributes', ...)` --
+  `version` default is **2** here (not 5), and `event_mode` still
+  exists in this release. Trust `inspect.signature` over docs snapshots.
+- Span shape at version 2 (dump with `scripts/debug_span_attrs.py`):
+  root `agent run` span carries `pydantic_ai.all_messages` (single JSON
+  string) + `final_result`; child `chat <model>` spans carry semconv
+  `gen_ai.input.messages` / `gen_ai.output.messages`.
 - Full detail and the "OTel without Logfire" pattern:
   `docs/research/self-hosted-agent-observability-code-puppy.md`.
+
+## Langfuse mapping facts (empirical, 2026-07-04 -- read before "fixing" blank UI columns)
+
+Established with `scripts/debug_langfuse_mapping.py` (synthetic attribute
+matrix) and API autopsies of real traces against the local Langfuse v3:
+
+- **Trace input was never missing.** Real agent-run traces carry full
+  input (13 KB - 300 KB message arrays) retrievable via
+  `GET /api/public/traces/{id}`. The blank "Input" column in the
+  Tracing TABLE is a UI preview quirk for large structured inputs; the
+  trace detail view has the data.
+- This Langfuse maps pydantic-ai's native root-span attrs directly:
+  `pydantic_ai.all_messages` -> trace input, `final_result` -> trace
+  output -- but (from probe spans without pydantic-ai's instrumentation
+  scope) generic `gen_ai.input.messages`/`gen_ai.output.messages`,
+  `input`/`output`, and `langfuse.observation.*` all map too, while a
+  hand-set `pydantic_ai.all_messages` did NOT (their pydantic-ai mapping
+  appears scope/shape-gated). When both native and semconv attrs are
+  present, Langfuse prefers the native pydantic-ai ones.
+- **A `gen_ai.input/output.messages` promotion processor was built,
+  E2E-verified, and then REVERTED** (2026-07-04): redundant for Langfuse
+  (native mapping already covers it) and it duplicates up to ~300 KB per
+  root span. Don't re-add it without a concrete backend that needs it
+  AND a size guard.
 
 ## Remaining work (in priority order)
 

@@ -113,6 +113,7 @@ Seeing the trace? You're done. Not seeing it? Table below.
 | Same, plus export errors mentioning 401/403 in logs | Wrong or swapped keys | Re-run `/otel-setup auth <pk> <sk>` (public key first!), restart |
 | Same, plus connection-refused export errors in logs | Backend not running / wrong port | `docker compose ps` in your Langfuse checkout; fix and traces resume on their own |
 | Trace appears but only after a delay | Normal — batch exporter flushes on a ~5 s schedule | Patience, young pup |
+| Input column blank in the Tracing *table* (Output shows fine) | UI preview quirk: agent inputs are large structured message arrays (full history + system prompt, often 100 KB+) that the list view doesn't preview | Nothing is lost — open the trace; the input is captured and returned by the API. Verified empirically (see AGENTS.md "Langfuse mapping facts") |
 | Traces arrive but aren't grouped into a session | `opentelemetry-processor-baggage` missing (partial install) | `/otel-setup` installs it; restart to re-instrument |
 | Changed a config key, nothing happened | Instrumentation is a one-way, process-lifetime switch | Restart code-puppy after any config change made *after* activation |
 | Startup banner annoys you and you don't want tracing | It only appears when `otel_bridge_enabled=true` | `/set otel_bridge_enabled false`, restart |
