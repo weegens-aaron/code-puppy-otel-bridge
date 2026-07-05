@@ -39,31 +39,23 @@ you name it. No code-puppy core changes, no vendor lock-in.
    the plugin is enabled but can't trace, a startup banner points you
    here.
 
-### Dependencies install themselves
+### Dependencies: opt-in per environment, no restart needed
 
-Once `otel_bridge_enabled` is `true` and an endpoint is configured, the
-plugin **auto-installs its three OTel packages at startup whenever
-they're missing** — into whatever environment code-puppy is running
-from (uvx cached env, a project venv, anything with `pip` or `uv`
-reachable). Enabling tracing is the consent; disabled users get zero
-network activity and zero environment changes.
+Dependency installation only ever happens when **you** run
+`/otel-setup` — the plugin never installs anything on its own. The
+command installs the three OTel packages into the running environment
+and **activates tracing live in the same session** (hot-load verified;
+in the rare case the running process can't load the fresh packages, it
+says so and one restart finishes the job).
 
-That means uvx cache prunes, code-puppy version bumps, and fresh
-per-project venvs all self-heal on the next launch (one "installing
-missing tracing deps" line, a few seconds, done — occasionally followed
-by a "restart code-puppy to finish activating tracing" notice when
-Python can't hot-load the fresh packages into the running process). If you'd rather skip
-even that occasional startup install, bake the deps into your launch
-command:
+If the environment gets rebuilt without the deps (uvx cache prune,
+code-puppy version bump), the startup banner tells you, and one
+`/otel-setup` fixes it. To avoid even that, bake the deps into your
+launch command:
 
 ```bash
 uvx --with opentelemetry-sdk --with opentelemetry-exporter-otlp-proto-http --with opentelemetry-processor-baggage code-puppy
 ```
-
-If the auto-install can't run (offline, no `pip`/`uv` reachable), the
-plugin degrades gracefully as always — `/otel-status` reports what's
-missing and `/otel-setup` retries on demand.
-
 ## Configure
 
 Four config keys, all set via `/set <key> <value>` inside code-puppy

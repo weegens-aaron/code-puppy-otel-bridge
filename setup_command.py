@@ -171,30 +171,35 @@ def _handle_auth(args: list[str]) -> bool:
     return True
 
 
-def _check_deps(emitters) -> bool:
-    """Step 1 of the walkthrough. Returns False if setup can't continue."""
+def _check_deps(emitters) -> tuple[bool, bool]:
+    """Step 1 of the walkthrough.
+
+    Returns ``(ok_to_continue, installed_now)`` -- the second flag lets
+    the caller distinguish "SDK broken" from "SDK freshly installed and
+    not hot-loadable in this process" when activation fails later.
+    """
     emit_error, emit_info, emit_success, emit_warning = emitters
     missing = missing_deps()
     if not missing:
         emit_success("[1/4] deps: all installed")
-        return True
+        return True, False
     emit_warning(f"[1/4] deps: missing {', '.join(missing)} -- installing...")
     ok, detail = install_deps(missing)
     if not ok:
         emit_error(f"[1/4] deps: install failed -- {detail}")
-        return False
+        return False, False
     still = missing_deps()
     if still:
         emit_error(
             f"[1/4] deps: installed but still not importable: "
             f"{', '.join(still)}. Restart code-puppy and re-run /otel-setup."
         )
-        return False
+        return False, True
     emit_success(f"[1/4] deps: installed via `{detail}`")
     note = durability_note()
     if note:
         emit_warning(note)
-    return True
+    return True, True
 
 
 def _walkthrough() -> bool:
@@ -209,7 +214,10 @@ def _walkthrough() -> bool:
 
     emit_info("otel_bridge setup:")
 
-    if not _check_deps((emit_error, emit_info, emit_success, emit_warning)):
+    deps_ok, installed_now = _check_deps(
+        (emit_error, emit_info, emit_success, emit_warning)
+    )
+    if not deps_ok:
         return True
 
     todo: list[str] = []
@@ -256,6 +264,15 @@ def _walkthrough() -> bool:
         rc._instrument()
     if rc._INSTRUMENTED:
         emit_success(f"otel_bridge: {rc._LAST_STATUS_REASON}")
+    elif installed_now and "self-check" in rc._LAST_STATUS_REASON:
+        # Freshly installed packages sometimes can't be hot-loaded into
+        # the running interpreter (half-stale import state). Healthy on
+        # disk -- a clean start activates automatically.
+        emit_warning(
+            "otel_bridge: deps installed, but this running process "
+            "couldn't hot-load them. Restart code-puppy -- tracing will "
+            "activate automatically at startup."
+        )
     else:
         emit_error(
             "otel_bridge: config looks complete but instrumentation "

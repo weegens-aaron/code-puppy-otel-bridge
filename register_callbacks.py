@@ -39,7 +39,6 @@ verified pydantic-ai OTel API.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import logging
 import uuid
@@ -126,50 +125,6 @@ def _try_import_otel_sdk():
         BatchSpanProcessor,
         set_tracer_provider,
     )
-
-
-def _emit_notice(message: str) -> None:
-    """Best-effort informational line in the TUI; logger fallback."""
-    try:
-        from code_puppy.messaging import emit_info
-
-        emit_info(message)
-    except Exception:
-        logger.info(message)
-
-
-def _auto_install_missing_deps() -> bool:
-    """Install missing runtime deps at startup (owner decision 2026-07-04).
-
-    Setting ``otel_bridge_enabled=true`` is consent to install what the
-    bridge needs -- so every environment (uvx cache rebuilds, fresh
-    per-project venvs) self-heals at startup instead of requiring
-    per-project onboarding. Runs ONLY when enabled and an endpoint is
-    configured (callers guarantee that); never raises -- a failed
-    install just leaves the existing degrade-gracefully paths to report
-    what's still missing. Returns True if it installed something, so
-    the caller can tell "fresh install, import state may be stale"
-    apart from a genuinely broken SDK.
-    """
-    missing = setup_command.missing_deps()
-    if not missing:
-        return False
-    _emit_notice(
-        f"otel_bridge: installing missing tracing deps "
-        f"({', '.join(missing)}) -- one-time per environment..."
-    )
-    ok, detail = setup_command.install_deps(missing)
-    if not ok:
-        logger.warning(f"otel_bridge: dep auto-install failed -- {detail}")
-        return False
-    logger.info(f"otel_bridge: auto-installed {', '.join(missing)} via `{detail}`")
-    note = setup_command.durability_note()
-    if note:
-        logger.info(
-            f"otel_bridge: {note} (optional -- deps now auto-install "
-            "at startup whenever they go missing)"
-        )
-    return True
 
 
 def _sdk_self_check(tracer_provider_cls: Any) -> str | None:
@@ -278,8 +233,6 @@ def _instrument() -> None:
         _emit_setup_banner(_LAST_STATUS_REASON)
         return
 
-    installed_now = _auto_install_missing_deps()
-
     sdk = _try_import_otel_sdk()
     if sdk is None:
         _LAST_STATUS_REASON = (
@@ -302,22 +255,9 @@ def _instrument() -> None:
 
     problem = _sdk_self_check(TracerProvider)
     if problem:
-        if installed_now:
-            # Observed in the wild (2026-07-04): packages installed
-            # mid-process can leave Python's import state half-stale, so
-            # the freshly-installed SDK flunks the self-check in THIS
-            # process while being perfectly healthy on disk. Not a
-            # version problem -- just needs a clean interpreter.
-            _LAST_STATUS_REASON = (
-                "tracing deps were just auto-installed; restart "
-                "code-puppy to finish activating tracing"
-            )
-            logger.info(f"otel_bridge: {_LAST_STATUS_REASON}")
-            _emit_notice(f"otel_bridge: {_LAST_STATUS_REASON}")
-        else:
-            _LAST_STATUS_REASON = problem
-            logger.warning(f"otel_bridge: {_LAST_STATUS_REASON}")
-            _emit_setup_banner(_LAST_STATUS_REASON)
+        _LAST_STATUS_REASON = problem
+        logger.warning(f"otel_bridge: {_LAST_STATUS_REASON}")
+        _emit_setup_banner(_LAST_STATUS_REASON)
         return
 
     try:
@@ -349,13 +289,8 @@ def _instrument() -> None:
 
 
 async def _on_startup() -> None:
-    """Host's ``startup`` callback -- config is guaranteed loaded by now.
-
-    Runs in a worker thread: the dep auto-install inside _instrument()
-    can block on a subprocess for seconds on first run, and the TUI's
-    event loop shouldn't freeze for it.
-    """
-    await asyncio.to_thread(_instrument)
+    """Host's ``startup`` callback -- config is guaranteed loaded by now."""
+    _instrument()
 
 
 register_callback("startup", _on_startup)

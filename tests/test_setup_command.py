@@ -225,6 +225,45 @@ def test_walkthrough_activates_live_when_fully_configured(monkeypatch, emitted):
     assert not any("s3cret" in t for _, t in emitted)
 
 
+def test_walkthrough_freshly_installed_but_not_hotloadable_says_restart(
+    monkeypatch, emitted
+):
+    """Install succeeded this process + self-check failure = advise a
+    restart (honest), not the scary version-mismatch error."""
+    monkeypatch.setattr(sc, "missing_deps", lambda: ["opentelemetry-sdk"])
+    monkeypatch.setattr(sc, "install_deps", lambda pkgs: (True, "uv pip ..."))
+    monkeypatch.setattr(sc, "durability_note", lambda: None)
+    monkeypatch.setattr(sc.config, "get_endpoint", lambda: "http://x/v1/traces")
+    monkeypatch.setattr(sc.config, "get_headers", lambda: {})
+    monkeypatch.setattr(sc.config, "is_enabled", lambda: True)
+
+    def _fake_instrument():
+        rc._LAST_STATUS_REASON = "OTel SDK failed span-creation self-check (...)"
+
+    monkeypatch.setattr(rc, "_instrument", _fake_instrument)
+    # After "install", the probe finds nothing missing (healthy on disk).
+    monkeypatch.setattr(
+        sc, "missing_deps", _once_then_empty(["opentelemetry-sdk"])
+    )
+    sc.handle_otel_setup_command("/otel-setup")
+    assert any(
+        level == "warning" and "Restart code-puppy" in text
+        for level, text in emitted
+    )
+    assert not any(level == "error" for level, _ in emitted)
+
+
+def _once_then_empty(first):
+    """missing_deps stub: 'first' on the first call, [] afterwards."""
+    calls = {"n": 0}
+
+    def _probe():
+        calls["n"] += 1
+        return first if calls["n"] == 1 else []
+
+    return _probe
+
+
 def test_walkthrough_reports_already_instrumented(monkeypatch, emitted):
     rc._INSTRUMENTED = True
     rc._LAST_STATUS_REASON = "instrumented -> http://x/v1/traces"

@@ -195,33 +195,28 @@ matrix) and API autopsies of real traces against the local Langfuse v3:
 
 ## Remaining work (in priority order)
 
-1. **Dependency durability: SOLVED by startup auto-install (owner
-   decision 2026-07-04, superseding the earlier "manual only" and
-   "uvx-only durability advice" decisions).**
-   `_auto_install_missing_deps()` runs inside `_instrument()` when (and
-   ONLY when) `otel_bridge_enabled=true` AND an endpoint is configured
-   -- enabling tracing is the consent to install its deps. It probes
-   with `setup_command.missing_deps()` and installs via
-   `setup_command.install_deps()` (pip if present, else `uv pip
-   --python sys.executable`), so uvx cache rebuilds and fresh
-   per-project venvs self-heal at startup with no per-project
-   onboarding. Invariants (test-pinned): NO probe/install when disabled
-   or endpoint-unset; install failure degrades to the ordinary
-   missing-deps path (banner + `/otel-status`), never raises. The
-   `uvx --with <deps>` launch form remains documented as an optional
-   optimization to skip the startup install. `_on_startup` dispatches
-   `_instrument()` via `asyncio.to_thread` so the blocking subprocess
-   can't freeze the TUI event loop.
-   **Stale-import caveat (observed live 2026-07-04):** packages
-   installed mid-process can flunk `_sdk_self_check` in THAT process
-   (half-loaded `opentelemetry` namespace) while being healthy on disk.
-   `_instrument()` distinguishes this via the `installed_now` flag from
-   `_auto_install_missing_deps()` and reports "restart to finish
-   activating" (info notice) instead of the version-skew banner. Don't
-   try to "fix" the hot-load with importlib surgery -- deferring to a
-   clean interpreter is the reliable behavior, verified E2E in a real
-   dev venv (uninstall deps -> startup auto-installed -> restart ->
-   instrumented).
+1. **Dependency onboarding: OPT-IN per environment via `/otel-setup`,
+   FINAL (decision log, all 2026-07-04, don't relitigate):**
+   manual-only -> startup auto-install -> **REVERTED to opt-in** after
+   real usage showed `uvx code-puppy` prompting about installs on
+   launch after launch -- noisier than the onboarding it replaced. Do
+   NOT re-add startup auto-install. Facts that survive the reversion:
+   - **Hot-load works on the paved path (verified):** in one process
+     with `pydantic_ai` already imported (like live code-puppy), all
+     three deps missing -> `install_deps()` -> `_instrument()` ->
+     instrumented. So `/otel-setup` = install + activate live, no
+     restart. The walkthrough still handles the rare hot-load failure
+     (self-check flunks right after an install) with an honest
+     "restart code-puppy to finish" warning -- keep that branch, and
+     don't attempt importlib surgery to force the hot-load.
+   - **Vendoring deps inside the plugin dir was considered and
+     rejected:** dependencies resolve via `sys.path`, not file
+     adjacency, so vendoring requires path manipulation (owner-vetoed)
+     and would pin an SDK copy that skews against the
+     `opentelemetry-api` shipped with pydantic-ai -- the exact
+     RANDOM_TRACE_ID crash class the self-check exists for.
+   - `uvx --with <deps>` stays documented as the way to avoid
+     re-onboarding after cache prunes / version bumps.
 2. **Sibling-plugin enrichment pattern: PROVEN (2026-07-04).** Another
    plugin added its own narrowly-scoped BaggageSpanProcessor to the
    global provider to emit backend-specific session/metadata baggage
@@ -260,12 +255,10 @@ Audit findings + invariants any future change must preserve:
 - **Subprocess use is injection-safe:** installer invocations are argv
   lists (`shell=False`), with timeouts; never interpolate user input
   into a shell string.
-- **Auto-install consent boundary:** the startup dep auto-install runs
-  ONLY when `otel_bridge_enabled=true` AND `otel_bridge_endpoint` is
-  set (both user actions). Disabled or half-configured users get zero
-  network activity and zero environment mutation -- test-pinned
-  (`test_no_autoinstall_when_disabled` / `_when_endpoint_unset`). Never
-  widen this trigger.
+- **Environment mutation only on explicit user command:** dependency
+  installs happen ONLY inside `/otel-setup` (a user-typed command).
+  Startup never probes for or installs packages -- auto-install was
+  tried and reverted (see "Remaining work" #1). Never re-widen this.
 - **Baggage allow-list stays narrow** (see Scope) -- that's a security
   property, not just tidiness: baggage values become span attributes in
   the backend.
