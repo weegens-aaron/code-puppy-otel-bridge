@@ -195,19 +195,33 @@ matrix) and API autopsies of real traces against the local Langfuse v3:
 
 ## Remaining work (in priority order)
 
-1. **Dependency durability (mitigated, not solved).** Supported launch
-   scenario: **`uvx code-puppy`, always** (owner decision 2026-07-04;
-   other install methods are explicitly the user's own problem -- don't
-   re-add per-method tables/heuristics). The three runtime deps
-   (`opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http`,
-   `opentelemetry-processor-baggage`) must live in code-puppy's env;
-   uvx rebuilds its cached env WITHOUT them on cache prune or version
-   change. The plugin then degrades gracefully AND (when enabled)
-   banners at startup pointing at `/otel-setup`, which reinstalls into
-   the running cached env on the spot and prints the durable
-   incantation: `uvx --with <each dep> code-puppy`. No durable fix
-   possible from inside the plugin; keep the README's install section
-   accurate.
+1. **Dependency durability: SOLVED by startup auto-install (owner
+   decision 2026-07-04, superseding the earlier "manual only" and
+   "uvx-only durability advice" decisions).**
+   `_auto_install_missing_deps()` runs inside `_instrument()` when (and
+   ONLY when) `otel_bridge_enabled=true` AND an endpoint is configured
+   -- enabling tracing is the consent to install its deps. It probes
+   with `setup_command.missing_deps()` and installs via
+   `setup_command.install_deps()` (pip if present, else `uv pip
+   --python sys.executable`), so uvx cache rebuilds and fresh
+   per-project venvs self-heal at startup with no per-project
+   onboarding. Invariants (test-pinned): NO probe/install when disabled
+   or endpoint-unset; install failure degrades to the ordinary
+   missing-deps path (banner + `/otel-status`), never raises. The
+   `uvx --with <deps>` launch form remains documented as an optional
+   optimization to skip the startup install. `_on_startup` dispatches
+   `_instrument()` via `asyncio.to_thread` so the blocking subprocess
+   can't freeze the TUI event loop.
+   **Stale-import caveat (observed live 2026-07-04):** packages
+   installed mid-process can flunk `_sdk_self_check` in THAT process
+   (half-loaded `opentelemetry` namespace) while being healthy on disk.
+   `_instrument()` distinguishes this via the `installed_now` flag from
+   `_auto_install_missing_deps()` and reports "restart to finish
+   activating" (info notice) instead of the version-skew banner. Don't
+   try to "fix" the hot-load with importlib surgery -- deferring to a
+   clean interpreter is the reliable behavior, verified E2E in a real
+   dev venv (uninstall deps -> startup auto-installed -> restart ->
+   instrumented).
 2. **Sibling-plugin enrichment pattern: PROVEN (2026-07-04).** Another
    plugin added its own narrowly-scoped BaggageSpanProcessor to the
    global provider to emit backend-specific session/metadata baggage
@@ -246,6 +260,12 @@ Audit findings + invariants any future change must preserve:
 - **Subprocess use is injection-safe:** installer invocations are argv
   lists (`shell=False`), with timeouts; never interpolate user input
   into a shell string.
+- **Auto-install consent boundary:** the startup dep auto-install runs
+  ONLY when `otel_bridge_enabled=true` AND `otel_bridge_endpoint` is
+  set (both user actions). Disabled or half-configured users get zero
+  network activity and zero environment mutation -- test-pinned
+  (`test_no_autoinstall_when_disabled` / `_when_endpoint_unset`). Never
+  widen this trigger.
 - **Baggage allow-list stays narrow** (see Scope) -- that's a security
   property, not just tidiness: baggage values become span attributes in
   the backend.

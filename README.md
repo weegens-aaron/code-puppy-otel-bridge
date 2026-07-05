@@ -34,31 +34,35 @@ you name it. No code-puppy core changes, no vendor lock-in.
    git clone https://github.com/weegens-aaron/code-puppy-otel-bridge.git ~/.code_puppy/plugins/otel_bridge
    ```
 
-2. Start code-puppy and run **`/otel-setup`** — it installs the runtime
-   dependencies into the running environment, walks you through the
-   config keys, and activates tracing live (no restart needed). If the
-   plugin is enabled but can't trace, a startup banner points you here.
+2. Start code-puppy and run **`/otel-setup`** — it walks you through
+   the config keys and activates tracing live (no restart needed). If
+   the plugin is enabled but can't trace, a startup banner points you
+   here.
 
-### Durable dependency install
+### Dependencies install themselves
 
-code-puppy is run via `uvx code-puppy`. `/otel-setup` installs the
-three OTel packages into uvx's cached environment — which works until
-the cache is pruned or code-puppy's version changes, at which point uvx
-builds a fresh env *without* them. The durable form bakes them into
-your launch command (alias it and forget about it):
+Once `otel_bridge_enabled` is `true` and an endpoint is configured, the
+plugin **auto-installs its three OTel packages at startup whenever
+they're missing** — into whatever environment code-puppy is running
+from (uvx cached env, a project venv, anything with `pip` or `uv`
+reachable). Enabling tracing is the consent; disabled users get zero
+network activity and zero environment changes.
+
+That means uvx cache prunes, code-puppy version bumps, and fresh
+per-project venvs all self-heal on the next launch (one "installing
+missing tracing deps" line, a few seconds, done — occasionally followed
+by a "restart code-puppy to finish activating tracing" notice when
+Python can't hot-load the fresh packages into the running process). If you'd rather skip
+even that occasional startup install, bake the deps into your launch
+command:
 
 ```bash
 uvx --with opentelemetry-sdk --with opentelemetry-exporter-otlp-proto-http --with opentelemetry-processor-baggage code-puppy
 ```
 
-If spans stop flowing after a code-puppy update, that's what happened —
-run `/otel-status` to confirm and `/otel-setup` to reinstall on the
-spot.
-
-Running code-puppy some other way (uv tool, pipx, a venv)? Install the
-same three packages into whatever environment code-puppy imports from —
-the plugin doesn't care how they got there, but you're off the paved
-path and the details are yours to own.
+If the auto-install can't run (offline, no `pip`/`uv` reachable), the
+plugin degrades gracefully as always — `/otel-status` reports what's
+missing and `/otel-setup` retries on demand.
 
 ## Configure
 

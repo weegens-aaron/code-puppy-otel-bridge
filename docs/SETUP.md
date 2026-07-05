@@ -79,11 +79,12 @@ Start (or restart) code-puppy, then:
   every config key, and — once all green — **activates tracing
   immediately**. No restart needed on this path.
 
-It will print a durability warning: uvx builds code-puppy's environment
-from a cache, so the deps survive *this and future sessions* — until a
-cache prune or a code-puppy version bump rebuilds the env without them.
-The durable fix is baking them into your launch command (the warning
-prints it verbatim — alias it):
+From then on, dependencies are hands-off: **once the plugin is enabled
+with an endpoint configured, it auto-installs any missing OTel packages
+at every startup** — so uvx cache prunes, code-puppy updates, and new
+per-project environments self-heal without re-onboarding. To skip even
+that occasional startup install, bake the deps into your launch
+command:
 
 ```bash
 uvx --with opentelemetry-sdk --with opentelemetry-exporter-otlp-proto-http --with opentelemetry-processor-baggage code-puppy
@@ -106,8 +107,9 @@ Seeing the trace? You're done. Not seeing it? Table below.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Startup banner: "tracing enabled but NOT active — endpoint is unset" | `otel_bridge_endpoint` never set | Step 3, then `/otel-setup` |
-| Startup banner: "...opentelemetry-sdk ... aren't installed" | Deps missing from code-puppy's env (fresh install, tool upgrade, cache prune) | `/otel-setup` reinstalls them on the spot |
-| Deps keep vanishing after every code-puppy update | uvx rebuilt the cached env without them (expected) | Launch with the `uvx --with ...` durable form from Step 4 |
+| Startup banner: "...opentelemetry-sdk ... aren't installed" | The startup auto-install couldn't run (offline? no `pip`/`uv` reachable?) — it only triggers when enabled + endpoint set | Check the log line above the banner for the install failure reason; `/otel-setup` retries on demand |
+| A few seconds' pause + "installing missing tracing deps" line at startup after a code-puppy update | uvx rebuilt the cached env; the plugin is reinstalling its deps (expected, self-healing) | Nothing — or use the `uvx --with ...` launch form from Step 4 to skip the reinstall entirely |
+| "tracing deps were just auto-installed; restart code-puppy to finish activating tracing" | Python couldn't hot-load the freshly installed packages into the already-running process (stale import state — harmless) | Restart once; the next launch instruments normally |
 | `/otel-setup` says "no pip in this env and no `uv` on PATH" | You're not running via `uvx code-puppy` (which guarantees `uv` exists) | Off the paved path: run the `pip install` line it prints in whatever env code-puppy actually uses |
 | `/otel-status` says ON but nothing in the backend UI | Wrong endpoint path (bare host instead of full `/v1/traces` path) | Fix `otel_bridge_endpoint` per Step 3's gotcha, **restart code-puppy** |
 | Same, plus export errors mentioning 401/403 in logs | Wrong or swapped keys | Re-run `/otel-setup auth <pk> <sk>` (public key first!), restart |

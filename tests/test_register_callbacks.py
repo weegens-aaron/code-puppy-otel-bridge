@@ -83,6 +83,97 @@ def test_no_banner_when_disabled(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Startup dep auto-install (enabled + endpoint = consent; never elsewhere)
+# ---------------------------------------------------------------------------
+
+
+def test_autoinstall_runs_when_enabled_and_deps_missing(monkeypatch):
+    installed: dict = {}
+    monkeypatch.setattr(rc.config, "is_enabled", lambda: True)
+    monkeypatch.setattr(rc.config, "get_endpoint", lambda: "http://x/v1/traces")
+    monkeypatch.setattr(
+        rc.setup_command, "missing_deps", lambda: ["opentelemetry-sdk"]
+    )
+
+    def _fake_install(packages):
+        installed["packages"] = packages
+        return True, "uv pip install ..."
+
+    monkeypatch.setattr(rc.setup_command, "install_deps", _fake_install)
+    monkeypatch.setattr(rc.setup_command, "durability_note", lambda: None)
+    # Deps "install" but the import stays stubbed-out: the run must end
+    # in the ordinary degrade path, not an exception.
+    monkeypatch.setattr(rc, "_try_import_otel_sdk", lambda: None)
+    rc._instrument()
+    assert installed["packages"] == ["opentelemetry-sdk"]
+    assert rc._INSTRUMENTED is False  # graceful, not magical
+
+
+def test_autoinstall_failure_stays_graceful(monkeypatch):
+    banners: list[str] = []
+    monkeypatch.setattr(rc, "_emit_setup_banner", banners.append)
+    monkeypatch.setattr(rc.config, "is_enabled", lambda: True)
+    monkeypatch.setattr(rc.config, "get_endpoint", lambda: "http://x/v1/traces")
+    monkeypatch.setattr(rc.setup_command, "missing_deps", lambda: ["opentelemetry-sdk"])
+    monkeypatch.setattr(
+        rc.setup_command, "install_deps", lambda pkgs: (False, "no network")
+    )
+    monkeypatch.setattr(rc, "_try_import_otel_sdk", lambda: None)
+    rc._instrument()  # must not raise
+    assert rc._INSTRUMENTED is False
+    assert len(banners) == 1  # the sdk-missing banner still points at /otel-setup
+
+
+def test_self_check_failure_right_after_install_asks_for_restart(monkeypatch):
+    """Fresh in-process install + failed self-check = stale import state,
+    not version skew: friendly 'restart to finish' notice, no scary
+    mismatch banner (observed live 2026-07-04)."""
+    banners: list[str] = []
+    notices: list[str] = []
+    monkeypatch.setattr(rc, "_emit_setup_banner", banners.append)
+    monkeypatch.setattr(rc, "_emit_notice", notices.append)
+    monkeypatch.setattr(rc.config, "is_enabled", lambda: True)
+    monkeypatch.setattr(rc.config, "get_endpoint", lambda: "http://x/v1/traces")
+    monkeypatch.setattr(rc, "_auto_install_missing_deps", lambda: True)
+
+    class _StaleImports:
+        def get_tracer(self, name):
+            raise AttributeError("half-loaded namespace package")
+
+    monkeypatch.setattr(
+        rc, "_try_import_otel_sdk", lambda: (None, None, _StaleImports, None, None)
+    )
+    rc._instrument()
+    assert rc._INSTRUMENTED is False
+    assert "restart" in rc._LAST_STATUS_REASON
+    assert banners == []  # no version-skew banner for a non-skew situation
+    assert any("restart" in n for n in notices)
+
+
+def test_no_autoinstall_when_disabled(monkeypatch):
+    """Disabled users must get ZERO env mutation and zero network."""
+    monkeypatch.setattr(
+        rc.setup_command,
+        "missing_deps",
+        lambda: pytest.fail("must not even probe deps when disabled"),
+    )
+    monkeypatch.setattr(rc.config, "is_enabled", lambda: False)
+    rc._instrument()
+
+
+def test_no_autoinstall_when_endpoint_unset(monkeypatch):
+    """Half-configured (no endpoint) must not mutate the environment."""
+    monkeypatch.setattr(
+        rc.setup_command,
+        "missing_deps",
+        lambda: pytest.fail("must not install with incomplete config"),
+    )
+    monkeypatch.setattr(rc.config, "is_enabled", lambda: True)
+    monkeypatch.setattr(rc.config, "get_endpoint", lambda: None)
+    rc._instrument()
+
+
+# ---------------------------------------------------------------------------
 # SDK span-creation self-check (api/sdk version-skew guard)
 # ---------------------------------------------------------------------------
 
