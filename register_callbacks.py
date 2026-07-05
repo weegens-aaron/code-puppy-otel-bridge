@@ -127,6 +127,44 @@ def _try_import_otel_sdk():
     )
 
 
+def _sdk_self_check(tracer_provider_cls: Any) -> str | None:
+    """Prove the OTel SDK can actually CREATE a span before we instrument.
+
+    Imports succeeding is not enough: mismatched opentelemetry-api /
+    opentelemetry-sdk versions import fine but explode at span-creation
+    time (real incident 2026-07-04: sdk 1.43.0 + api 1.41.1 ->
+    ``AttributeError: TraceFlags has no attribute RANDOM_TRACE_ID`` on
+    EVERY agent run, breaking the interactive loop). A throwaway
+    provider with no exporters exercises the same span-creation path;
+    nothing leaves the process.
+
+    Returns None when healthy, else a human-readable reason (including
+    both package versions, so the fix is obvious from /otel-status).
+    """
+    try:
+        tracer = tracer_provider_cls().get_tracer("otel_bridge.selfcheck")
+        span = tracer.start_span("otel_bridge.selfcheck")
+        span.end()
+        return None
+    except Exception as exc:
+        api_version = sdk_version = "unknown"
+        try:
+            import opentelemetry.sdk.version
+            import opentelemetry.version
+
+            api_version = opentelemetry.version.__version__
+            sdk_version = opentelemetry.sdk.version.__version__
+        except Exception:  # pragma: no cover - best-effort version report
+            pass
+        return (
+            f"OTel SDK failed span-creation self-check "
+            f"({type(exc).__name__}: {exc}). Installed opentelemetry-api "
+            f"{api_version} / opentelemetry-sdk {sdk_version} are likely "
+            f"mismatched -- align them (e.g. uv pip install --upgrade "
+            f"opentelemetry-api opentelemetry-sdk) and restart"
+        )
+
+
 def _baggage_key_allowed(key: str) -> bool:
     """Allow-list predicate for the BaggageSpanProcessor.
 
@@ -214,6 +252,13 @@ def _instrument() -> None:
         BatchSpanProcessor,
         set_tracer_provider,
     ) = sdk
+
+    problem = _sdk_self_check(TracerProvider)
+    if problem:
+        _LAST_STATUS_REASON = problem
+        logger.warning(f"otel_bridge: {_LAST_STATUS_REASON}")
+        _emit_setup_banner(_LAST_STATUS_REASON)
+        return
 
     try:
         from pydantic_ai import Agent, InstrumentationSettings

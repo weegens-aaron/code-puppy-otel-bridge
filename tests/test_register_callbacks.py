@@ -82,6 +82,56 @@ def test_no_banner_when_disabled(monkeypatch):
     rc._instrument()
 
 
+# ---------------------------------------------------------------------------
+# SDK span-creation self-check (api/sdk version-skew guard)
+# ---------------------------------------------------------------------------
+
+
+def test_self_check_passes_with_real_sdk():
+    from opentelemetry.sdk.trace import TracerProvider
+
+    assert rc._sdk_self_check(TracerProvider) is None
+
+
+def test_self_check_reports_broken_sdk_with_versions():
+    class _ExplodingProvider:
+        def get_tracer(self, name):
+            raise AttributeError(
+                "type object 'TraceFlags' has no attribute 'RANDOM_TRACE_ID'"
+            )
+
+    reason = rc._sdk_self_check(_ExplodingProvider)
+    assert reason is not None
+    assert "RANDOM_TRACE_ID" in reason
+    assert "opentelemetry-api" in reason  # names the packages to align
+
+
+def test_instrument_aborts_and_banners_when_self_check_fails(monkeypatch):
+    """A skewed SDK must mean NO instrumentation (one broken span per
+    agent run would break the interactive loop -- the 2026-07-04
+    incident), plus a visible banner."""
+    banners: list[str] = []
+    monkeypatch.setattr(rc, "_emit_setup_banner", banners.append)
+    monkeypatch.setattr(rc.config, "is_enabled", lambda: True)
+    monkeypatch.setattr(
+        rc.config, "get_endpoint", lambda: "http://localhost:4318/v1/traces"
+    )
+
+    class _Boom:
+        def get_tracer(self, name):
+            raise AttributeError("skewed")
+
+    monkeypatch.setattr(
+        rc,
+        "_try_import_otel_sdk",
+        lambda: (None, None, _Boom, None, None),
+    )
+    rc._instrument()
+    assert rc._INSTRUMENTED is False
+    assert "self-check" in rc._LAST_STATUS_REASON
+    assert len(banners) == 1
+
+
 def test_banner_swallows_messaging_failures(monkeypatch):
     """_emit_setup_banner must never raise, even if the host UI is gone."""
     import code_puppy.messaging as messaging
@@ -153,6 +203,9 @@ def test_instrument_succeeds_with_stubbed_sdk_and_pydantic_ai(monkeypatch):
             _fake_set_tracer_provider,
         ),
     )
+    # This test pins the WIRING; the self-check is pinned separately
+    # (and a fake provider can't pass the real one).
+    monkeypatch.setattr(rc, "_sdk_self_check", lambda cls: None)
 
     class _FakeInstrumentationSettings:
         def __init__(self, tracer_provider=None):

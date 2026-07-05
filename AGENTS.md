@@ -64,6 +64,20 @@ arrive from anywhere; copying arbitrary baggage onto spans leaks junk
 attribute to its Sessions feature: one code-puppy process = one
 browsable Langfuse session containing all agent/subagent traces.
 
+**SDK span-creation self-check (added 2026-07-04, incident-driven):**
+`_sdk_self_check` runs inside `_instrument()` after the imports succeed
+but BEFORE `Agent.instrument_all()`: it creates+ends one span on a
+throwaway exporterless `TracerProvider`. Rationale: mismatched
+`opentelemetry-api`/`opentelemetry-sdk` versions import cleanly but
+explode at span creation (real incident: sdk 1.43.0 + api 1.41.1 ->
+`AttributeError: TraceFlags has no attribute RANDOM_TRACE_ID` on every
+agent run in a dev venv -- i.e. instrumentation itself broke the
+interactive loop, the one thing this plugin must never do). On failure:
+no instrumentation, reason (with both versions) in `/otel-status`,
+startup banner. Don't remove this check, and don't "optimize" it onto
+the real provider -- the throwaway keeps the probe span out of the
+backend.
+
 **E2E smoke (passed 2026-07-04):** `scripts/smoke_e2e.py` runs
 `_instrument()` against the real SDK, executes a real `pydantic_ai.Agent`
 (TestModel, offline) inside the plugin's `agent_run_context` CM,
